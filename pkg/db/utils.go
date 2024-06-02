@@ -8,13 +8,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 )
 
 // readCSV reads records from a csv file
 func readCSV(csvPath string) ([][]string, error) {
 	csvFile, err := os.Open(csvPath)
 	if err != nil {
-		return nil, fmt.Errorf("errror opening csv file %s: %v", csvPath, err)
+		return nil, fmt.Errorf("error opening csv file %s: %v", csvPath, err)
 	}
 	defer csvFile.Close()
 
@@ -107,7 +108,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("backup import file created at %s", dst)
+	log.Printf("copy of file %s created at %s", src, dst)
 
 	// ensure all content is flushed to the destination file
 	err = destinationFile.Sync()
@@ -116,4 +117,29 @@ func copyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+// getFields
+func getFields(s interface{}) []interface{} {
+	v := reflect.ValueOf(s)
+	fields := make([]interface{}, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		fields[i] = v.Field(i).Interface()
+	}
+	return fields
+}
+
+// getStructFields
+func getStructFields(s interface{}) []interface{} {
+	v := reflect.ValueOf(s)
+	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+		panic("getStructFields requires a pointer to a struct")
+	}
+	v = v.Elem() // Dereference the pointer to get the struct value
+
+	fields := make([]interface{}, v.NumField())
+	for i := 0; i < v.NumField(); i++ {
+		fields[i] = v.Field(i).Addr() // Get the address of the field
+	}
+	return fields
 }
