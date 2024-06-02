@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/csv"
 	"fmt"
 	"log"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/DragoHex/shaadiPlanner/pkg/invitee"
+	"github.com/mattn/go-sqlite3"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -38,16 +41,34 @@ var (
 )
 
 type SQLiteDB struct {
-	// TODO: change to db connector
 	// TODO: Add an Column interface that has queries as object
-	db *sql.DB
+	driver *sqlite3.SQLiteDriver
+	dsn    string
+}
+
+// NewSQLiteDB returns new isntance of 
+func NewSQLiteDB() *SQLiteDB {
+	return &SQLiteDB{driver: &sqlite3.SQLiteDriver{}, dsn: dbFile}
+}
+
+func (s *SQLiteDB) Connect(ctx context.Context) (driver.Conn, error) {
+	return s.driver.Open(s.dsn)
+}
+
+func (s *SQLiteDB) Driver() driver.Driver {
+	return s.driver
 }
 
 // Import imports data from csv file
 func (s *SQLiteDB) Import(csvPath string) error {
-	// compare the old and new import
-	log.Printf("comparing the file to be imported %s, with the previously imported %s", csvPath, csvImportBackup)
-	if sameImport(csvPath) {
+	// create db if not exist
+	if _, err := os.Stat(s.dsn); err != nil {
+		log.Printf("db file %s does not exist", s.dsn)
+		if err := os.MkdirAll(filepath.Dir(s.dsn), os.ModePerm); err != nil {
+			return fmt.Errorf("error creating db %s: %v", s.dsn, err)
+		}
+		log.Printf("db file created at %s", s.dsn)
+	} else if sameImport(csvPath) { // compare the old and new import
 		log.Printf("the content of %v, is same as the last import, so skipping the operation", csvPath)
 		return nil
 	}
@@ -58,28 +79,16 @@ func (s *SQLiteDB) Import(csvPath string) error {
 		return fmt.Errorf("error reading csv file %s: %v", csvPath, err)
 	}
 
-	// create db if not exist
-	if _, err := os.Stat(dbFile); err != nil {
-		log.Printf("db file %s does not exist", dbFile)
-		if err := os.MkdirAll(filepath.Dir(dbFile), os.ModePerm); err != nil {
-			return fmt.Errorf("error creating db %s: %v", dbFile, err)
-		}
-		log.Printf("db file created at %s", dbFile)
-	}
-
 	// add columns to the db
 	log.Println("adding data to the db")
-	s.db, err = sql.Open("sqlite3", dbFile)
-	if err != nil {
-		return fmt.Errorf("error in opening the db %s", dbFile)
-	}
-	defer s.db.Close()
-	if _, err := s.db.Exec(tableColumns); err != nil {
-		return fmt.Errorf("table creation failed for the db %s", dbFile)
+	db:= sql.OpenDB(s)
+	defer db.Close()
+	if _, err := db.Exec(tableColumns); err != nil {
+		return fmt.Errorf("table creation failed for the db %s", s.dsn)
 	}
 
 	// write to the db
-	stmt, err := s.db.Prepare(insertInviteeSQL)
+	stmt, err := db.Prepare(insertInviteeSQL)
 	if err != nil {
 		return fmt.Errorf("error perparing sql statement for insertion: %v", err)
 	}
@@ -113,6 +122,7 @@ func (s *SQLiteDB) Import(csvPath string) error {
 	return nil
 }
 
+// Export exports data from db to csv
 func (s *SQLiteDB) Export(csvPath string) error {
 	var err error
 	// when db doesn't exist
@@ -122,14 +132,11 @@ func (s *SQLiteDB) Export(csvPath string) error {
 	}
 
 	// open a db connection
-	s.db, err = sql.Open("sqlite3", dbFile)
-	if err != nil {
-		return fmt.Errorf("error i nopening the db %s: %v", dbFile, err)
-	}
-	defer s.db.Close()
+	db := sql.OpenDB(s)
+	defer db.Close()
 
 	// query the rows
-	rows, err := s.db.Query(selectAllSQL)
+	rows, err := db.Query(selectAllSQL)
 	if err != nil {
 		return fmt.Errorf("error fetching data from database: %v", err)
 	}
