@@ -1,7 +1,12 @@
 package db
 
 type DB interface {
-	Import()
-	Export()
-	Query()
+  Import(string) 
+  Export()
+  Query()
+}
+
+type Column interface {
+  CreateTableQuery() string
+
 }
